@@ -7,6 +7,21 @@ const _osGroup = 0;
 const _osCmdEcho = 0;
 const _osCmdReset = 5;
 
+/*     
+const struct cbor_attr_t attrs[2] = {
+        [0] = {
+            .attribute = "d",
+            .type = CborAttrTextStringType,
+            .addr.string = echo_buf,
+            .nodefault = 1,
+            .len = sizeof echo_buf,
+        },
+        [1] = {
+            .attribute = NULL
+        }
+    };
+  */
+
 extension ClientOsExtension on Client {
   /// Sends an echo message to the device.
   ///
