@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:io';
-import 'dart:js_interop';
 
 import 'package:cbor/cbor.dart';
 import 'package:mcumgr/mcumgr.dart';
@@ -8,10 +8,19 @@ import 'package:mcumgr/util.dart';
 
 const _fsGroup = 8;
 const _fsFileId = 0;
-const String testPath = "/lfs/test.txt";
 
+/// Extension for the file system group.
 extension ClientFsExtension on Client {
-  Future<FsDownloadResponse> downloadChunk(String path, int offset, Duration timeout) {
+  /// Download a chunk from the device.
+  ///
+  /// [path] is the path to the file to download.
+  ///
+  /// [offset] is the offset in the file to start downloading from.
+  ///
+  /// [timeout] is the maximum time to wait for a response.
+  ///
+  /// Returns a [_FsDownloadResponse] with the data and metadata.
+  Future<_FsDownloadResponse> downloadChunk(String path, int offset, Duration timeout) {
     return execute(
       Message(
         op: Operation.write,
@@ -24,27 +33,37 @@ extension ClientFsExtension on Client {
         }),
       ),
       timeout,
-    ).unwrap().then((msg) => FsDownloadResponse(msg.data));
+    ).unwrap().then((msg) => _FsDownloadResponse(msg.data));
+  }
+
+  /// Download a file from the device.
+  ///
+  /// [deviceFilePath] is the path to the file to download (from the target device).
+  ///
+  /// [savePath] is the name of the file to download to (save).
+  ///
+  /// If specified, [onProgress] will be called after each downloaded chunk.
+  /// Its parameter is the number bytes uploaded so far.
+  ///
+  /// [timeout] is the maximum time to wait for a response. (default: 5 seconds)
+  Future<void> downloadFile(
+      {required String deviceFilePath,
+      required String savePath,
+      void Function(double)? onProgress,
+      Duration timeout = const Duration(seconds: 5)}) async {
+    final download = _FsFileDownload(
+      client: this,
+      onProgress: onProgress,
+      deviceFilePath: deviceFilePath,
+      savePath: savePath,
+      timeout: timeout,
+    );
+    download.startFileDownload(deviceFilePath, savePath, timeout);
+    return download.completer.future;
   }
 }
 
-/// Response to a file download request.
-class FsDownloadResponse {
-  final int offset;
-  final int bytesReseived;
-  final int? fileLength;
-  final CborBytes data;
-
-  FsDownloadResponse(CborMap input)
-      : offset = (input[CborString("off")] as CborInt).toInt(),
-        bytesReseived = (input[CborString("data")] as CborBytes).bytes.length,
-        fileLength = (input[CborString("len")] as CborInt?)?.toInt(),
-        data = input[CborString("data")] as CborBytes;
-}
-
 /// Class for downloading a file from the device.
-///
-/// [file] is the file to download to.
 ///
 /// [bytesReseivedTotal] is the total number of bytes received.
 ///
@@ -53,72 +72,86 @@ class FsDownloadResponse {
 /// [fileLength] is the length of the file to download.
 ///
 /// [client] is the client to use for downloading.
-class FsFileDownload {
+class _FsFileDownload {
   final Client client;
+  final void Function(double)? onProgress;
+  final String deviceFilePath;
+  final String savePath;
+  final Duration timeout;
+  final completer = Completer<void>();
 
-  FsFileDownload(this.client);
+  _FsFileDownload({
+    required this.client,
+    required this.onProgress,
+    required this.deviceFilePath,
+    required this.savePath,
+    required this.timeout,
+  });
 
   /// Downloads a file from the device.
   ///
-  /// [path] is the path to the file on the device.
+  /// [deviceFilePath] is the path to the file on the device.
   ///
-  /// [fileName] is the name of the file to download to.
+  /// [savePath] is the name of the file to download to.
   ///
   /// [timeout] is the timeout for the request.
-  Future<bool> startFileDownload(String path, String fileName, Duration timeout) async {
-    File file = File(fileName);
-    final Future<FsDownloadResponse> future;
+  void startFileDownload(String deviceFilePath, String savePath, Duration timeout) async {
+    print("Starting file download");
+    print("Device file path: $deviceFilePath");
+    print("Save path: $savePath");
+
+    File file = File(savePath);
+    final Future<_FsDownloadResponse> future;
     int bytesReseivedTotal = 0;
     int offset = 0;
     int fileLength = 0;
 
-    final FileDownloadObject fileDownloadObject =
-        FileDownloadObject(file, path, offset, fileLength, bytesReseivedTotal);
+    final FileDownloadObj fDownObj =
+        FileDownloadObj(file, deviceFilePath, offset, fileLength, bytesReseivedTotal, timeout);
 
-    future = client.downloadChunk(fileDownloadObject.path, fileDownloadObject.offset, fileDownloadObject.timeout);
+    future = client.downloadChunk(fDownObj.path, fDownObj.offset, fDownObj.timeout);
 
-    future.then((response) => _onDownloadDone(response, fileDownloadObject), onError: (error, stackTrace) {
-      _onDownloadError(error, stackTrace);
-      print("Error downloading file: $error");
-      return false;
-    });
-    return true;
+    future.then((response) => _onDownloadDone(response, fDownObj),
+        onError: (error, stackTrace) => _onDownloadError(error, stackTrace));
+    completer.complete();
   }
 
   /// Downloads the next chunk of a file from the device.
-  void downloadNextChunk(FileDownloadObject fileDownloadObject) {
-    final Future<FsDownloadResponse> future;
-    future = client.downloadChunk(fileDownloadObject.path, fileDownloadObject.offset, fileDownloadObject.timeout);
+  void _downloadNextChunk(FileDownloadObj fDownObj) {
+    final Future<_FsDownloadResponse> future;
+    future = client.downloadChunk(fDownObj.path, fDownObj.offset, fDownObj.timeout);
 
-    future.then((response) => _onDownloadDone(response, fileDownloadObject),
+    future.then((response) => _onDownloadDone(response, fDownObj),
         onError: (error, stackTrace) => _onDownloadError(error, stackTrace));
   }
 
-  void _onDownloadDone(FsDownloadResponse response, FileDownloadObject fileDownloadObject) {
+  void _onDownloadDone(_FsDownloadResponse response, FileDownloadObj fDownObj) {
     // File length is only set on the first response
     if (response.offset == 0) {
-      fileDownloadObject.length = response.fileLength!;
-      fileDownloadObject.bytesReseivedTotal = 0;
+      fDownObj.length = response.fileLength!;
+      fDownObj.bytesReseivedTotal = 0;
     }
 
-    fileDownloadObject.bytesReseivedTotal += response.bytesReseived;
-    fileDownloadObject.offset = response.offset;
+    fDownObj.bytesReseivedTotal += response.bytesReseived;
+    fDownObj.offset = response.offset;
+
+    onProgress?.call((response.offset / fDownObj.length).toDouble());
 
     print("Bytes received: ${response.bytesReseived}");
-    print("Total bytes received : ${fileDownloadObject.bytesReseivedTotal}");
-    print("Total file length: ${fileDownloadObject.length}");
+    print("Total bytes received : ${fDownObj.bytesReseivedTotal}");
+    print("Total file length: ${fDownObj.length}");
 
     // Write data to file
-    fileDownloadObject.file!.writeAsBytes((response.data).bytes, mode: FileMode.append);
+    fDownObj.file!.writeAsBytes((response.data).bytes, mode: FileMode.append);
 
     // Check that if the file is complete (reseived bytes equal to file length)
-    if (fileDownloadObject.bytesReseivedTotal == fileDownloadObject.length) {
+    if (fDownObj.bytesReseivedTotal == fDownObj.length) {
       print("File is complete");
       return;
-    } else if (fileDownloadObject.bytesReseivedTotal > fileDownloadObject.length) {
+    } else if (fDownObj.bytesReseivedTotal > fDownObj.length) {
       print("Error: File is too long!");
     } else {
-      downloadNextChunk(fileDownloadObject);
+      _downloadNextChunk(fDownObj);
     }
   }
 
@@ -129,10 +162,35 @@ class FsFileDownload {
   ) {
     print("Error: $error");
     print("Stack trace: $stackTrace");
+    print("Error downloading file: $error");
+    completer.completeError(error, stackTrace);
   }
 }
 
-class FileDownloadObject {
+/// Response to a file download request.
+///
+/// [offset] is the offset of the next chunk to download.
+///
+/// [bytesReseived] is the number of bytes received in this chunk.
+///
+/// [fileLength] is the length of the file to download.
+///
+/// [data] is the data received in this chunk.
+class _FsDownloadResponse {
+  final int offset;
+  final int bytesReseived;
+  final int? fileLength;
+  final CborBytes data;
+
+  _FsDownloadResponse(CborMap input)
+      : offset = (input[CborString("off")] as CborInt).toInt(),
+        bytesReseived = (input[CborString("data")] as CborBytes).bytes.length,
+        fileLength = (input[CborString("len")] as CborInt?)?.toInt(),
+        data = input[CborString("data")] as CborBytes;
+}
+
+/// Class for holding the file download information.
+class FileDownloadObj {
   File? file;
   String path;
   int offset;
@@ -140,6 +198,5 @@ class FileDownloadObject {
   int bytesReseivedTotal;
   Duration timeout;
 
-  FileDownloadObject(this.file, this.path, this.offset, this.length, this.bytesReseivedTotal,
-      {this.timeout = const Duration(seconds: 5)});
+  FileDownloadObj(this.file, this.path, this.offset, this.length, this.bytesReseivedTotal, this.timeout);
 }

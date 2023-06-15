@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:mcumgr/mcumgr.dart';
 
+const String examplePath = "/lfs/hello.txt";
+
 class DeviceScreen extends StatefulWidget {
   final FlutterReactiveBle ble;
   final DiscoveredDevice device;
@@ -48,9 +50,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
     final stream = widget.ble.connectToDevice(
       id: widget.device.id,
       servicesWithCharacteristicsToDiscover: {
-        Uuid.parse("8d53dc1d-1db7-4cd3-868b-8a527460aa84"): [
-          Uuid.parse("da2e7828-fbce-4e01-ae9e-261174997c48")
-        ]
+        Uuid.parse("8d53dc1d-1db7-4cd3-868b-8a527460aa84"): [Uuid.parse("da2e7828-fbce-4e01-ae9e-261174997c48")]
       },
       connectionTimeout: widget.connectionTimeout,
     );
@@ -95,8 +95,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
             // disconnecting causes the stream to end anyways
           },
         ),
-        output: (msg) => widget.ble
-            .writeCharacteristicWithoutResponse(characteristic, value: msg),
+        output: (msg) => widget.ble.writeCharacteristicWithoutResponse(characteristic, value: msg),
       );
       newImageState = await newClient.readImageState(timeout);
     }
@@ -186,6 +185,43 @@ class _DeviceScreenState extends State<DeviceScreen> {
     });
   }
 
+  void _download() async {
+    // Select a place to save the file
+    final savePath = await FilePicker.platform.getDirectoryPath();
+    if (savePath == null) {
+      return;
+    }
+
+    if (client == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text("Not connected"),
+      ));
+      return;
+    }
+
+    setState(() {
+      installing = true;
+      progress = 0;
+    });
+
+    try {
+      await client!.downloadFile(
+        deviceFilePath: examplePath,
+        savePath: savePath,
+        onProgress: (progress) {
+          setState(() {
+            progress = progress;
+          });
+        },
+        timeout: const Duration(seconds: 5),
+      );
+    } finally {
+      setState(() {
+        installing = false;
+      });
+    }
+  }
+
   List<Widget> buildActions(BuildContext context) {
     return [
       IconButton(
@@ -195,6 +231,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
       IconButton(
         icon: const Icon(Icons.system_update),
         onPressed: client != null ? _update : null,
+      ),
+      IconButton(
+        icon: const Icon(Icons.download),
+        onPressed: client != null ? _download : null,
       ),
     ];
   }
@@ -274,16 +314,14 @@ class ImageWidget extends StatelessWidget {
       trailing = TextButton(
         child: const Text("CONFIRM"),
         onPressed: () async {
-          onImageStateChanged(
-              await client.confirmImageState(_DeviceScreenState.timeout));
+          onImageStateChanged(await client.confirmImageState(_DeviceScreenState.timeout));
         },
       );
     } else if (!image.active && !image.pending) {
       trailing = TextButton(
         child: const Text("TEST"),
         onPressed: () async {
-          onImageStateChanged(await client.setPendingImage(
-              image.hash, false, _DeviceScreenState.timeout));
+          onImageStateChanged(await client.setPendingImage(image.hash, false, _DeviceScreenState.timeout));
         },
       );
     }
