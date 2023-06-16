@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:mcumgr/mcumgr.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 const String examplePath = "/lfs/hello.txt";
 
@@ -70,6 +73,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
   }
 
   void reconnect() async {
+    print("Reconnecting...");
     await disconnect();
     connect();
   }
@@ -97,7 +101,11 @@ class _DeviceScreenState extends State<DeviceScreen> {
         ),
         output: (msg) => widget.ble.writeCharacteristicWithoutResponse(characteristic, value: msg),
       );
-      newImageState = await newClient.readImageState(timeout);
+      try {
+        // newImageState = await newClient.readImageState(timeout);
+      } catch (e) {
+        if (kDebugMode) print("Failed to read image state: $e");
+      }
     }
 
     setState(() {
@@ -186,11 +194,25 @@ class _DeviceScreenState extends State<DeviceScreen> {
   }
 
   void _download() async {
+    const String examplePath = "/lfs/example.txt";
+    const String saveName = "example.txt";
+
+    // Ask permission to access the file system
+    final permission = await Permission.storage.request();
+    if (permission != PermissionStatus.granted) {
+      if (kDebugMode) print("Permission to storage not granted");
+      return;
+    }
+
     // Select a place to save the file
     final savePath = await FilePicker.platform.getDirectoryPath();
     if (savePath == null) {
+      if (kDebugMode) print("No save path selected");
       return;
     }
+
+    // Add the file name to the save path
+    final savePathWithName = "$savePath/$saveName";
 
     if (client == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -205,9 +227,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
     });
 
     try {
+      if (kDebugMode) print("Calling downloadFile");
       await client!.downloadFile(
         deviceFilePath: examplePath,
-        savePath: savePath,
+        savePath: savePathWithName,
         onProgress: (progress) {
           setState(() {
             progress = progress;
@@ -220,6 +243,29 @@ class _DeviceScreenState extends State<DeviceScreen> {
         installing = false;
       });
     }
+  }
+
+  void _upload() {
+    String examplePath = "/lfs/example.txt";
+    List<int> bytes = utf8.encode("Testing string");
+    if (client == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text("Not connected"),
+      ));
+      return;
+    }
+
+    try {
+      if (kDebugMode) print("Calling uploadFile");
+      client!.uploadData(
+        deviceFilePath: examplePath,
+        data: bytes,
+        onProgress: (progress) {
+          if (kDebugMode) print("Progress: $progress");
+        },
+        timeout: const Duration(seconds: 5),
+      );
+    } finally {}
   }
 
   List<Widget> buildActions(BuildContext context) {
@@ -235,6 +281,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
       IconButton(
         icon: const Icon(Icons.download),
         onPressed: client != null ? _download : null,
+      ),
+      IconButton(
+        icon: const Icon(Icons.upload),
+        onPressed: client != null ? _upload : null,
       ),
     ];
   }

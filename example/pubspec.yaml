@@ -38,6 +38,7 @@ dependencies:
   cupertino_icons: ^1.0.2
   flutter_reactive_ble: ^5.0.2
   file_picker: any
+  permission_handler: ^10.3.0
 
 dev_dependencies:
   flutter_test:
