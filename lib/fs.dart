@@ -50,10 +50,10 @@ extension ClientFsExtension on Client {
         id: _fsFileId,
         flags: 0,
         data: CborMap({
-          CborString("off"): CborSmallInt(offset),
+          CborString("name"): CborString(filePath),
           CborString("data"): CborBytes(data),
           CborString("len"): CborSmallInt(lenght),
-          CborString("name"): CborString(filePath),
+          CborString("off"): CborSmallInt(offset),
         }),
       ),
       timeout,
@@ -61,7 +61,10 @@ extension ClientFsExtension on Client {
   }
 
   Future<FsUploadResponse> continueUpload(
-      {required int offset, required List<int> data, Duration timeout = const Duration(seconds: 5)}) {
+      {required filePath,
+      required int offset,
+      required List<int> data,
+      Duration timeout = const Duration(seconds: 5)}) {
     return execute(
       Message(
         op: Operation.write,
@@ -69,8 +72,9 @@ extension ClientFsExtension on Client {
         id: _fsFileId,
         flags: 0,
         data: CborMap({
-          CborString("off"): CborSmallInt(offset),
+          CborString("name"): CborString(filePath),
           CborString("data"): CborBytes(data),
+          CborString("off"): CborSmallInt(offset),
         }),
       ),
       timeout,
@@ -121,10 +125,10 @@ extension ClientFsExtension on Client {
   Future<void> uploadData({
     required String deviceFilePath,
     required List<int> data,
-    int chunkSize = 128,
+    required int chunkSize,
+    int windowSize = 1, // default: 1, curretly only 1 is supported
     void Function(double)? onProgress,
     Duration timeout = const Duration(seconds: 5),
-    int windowSize = 3,
   }) async {
     final upload = _FsFileUpload(
         deviceFilePath: deviceFilePath,
@@ -132,7 +136,7 @@ extension ClientFsExtension on Client {
         onProgress: onProgress,
         data: data,
         chunkTimeout: timeout,
-        maxChunkSize: 128,
+        maxBufferSize: chunkSize,
         windowSize: windowSize);
     upload.start();
     return upload.completer.future;
@@ -235,7 +239,7 @@ class _FsFileUpload {
   final String deviceFilePath;
   final List<int> data;
   final Duration chunkTimeout;
-  final int maxChunkSize;
+  final int maxBufferSize;
   final void Function(double)? onProgress;
   final int windowSize;
   final List<_FsUploadChunk> pending = [];
@@ -246,20 +250,22 @@ class _FsFileUpload {
     required this.deviceFilePath,
     required this.data,
     required this.chunkTimeout,
-    required this.maxChunkSize,
+    required this.maxBufferSize,
     required this.onProgress,
     required this.windowSize,
   });
 
   int sendChunk(int offset) {
     int chunkSize = data.length - offset;
-    if (chunkSize > maxChunkSize) {
-      chunkSize = maxChunkSize;
+    int maxBufSize = getMaxChunkSize(
+        offset: offset, dataLen: data.length, maxMcuMgrBuffLen: maxBufferSize, filename: deviceFilePath);
+    if (chunkSize > maxBufSize) {
+      chunkSize = maxBufSize;
     }
     if (chunkSize <= 0) {
       return 0;
     }
-    List<int> chuckData = data.sublist(offset, offset + chunkSize);
+    List<int> chunckData = data.sublist(offset, offset + chunkSize);
 
     final chunk = _FsUploadChunk(offset, offset + chunkSize);
     pending.add(chunk);
@@ -267,13 +273,14 @@ class _FsFileUpload {
     final Future<FsUploadResponse> future;
     if (offset == 0) {
       future = client.startUpload(
-          filePath: deviceFilePath, data: chuckData, lenght: chuckData.length, offset: offset, timeout: chunkTimeout);
+          filePath: deviceFilePath, data: chunckData, lenght: data.length, offset: offset, timeout: chunkTimeout);
     } else {
-      future = client.continueUpload(offset: offset, data: chuckData);
+      future = client.continueUpload(filePath: deviceFilePath, offset: offset, data: chunckData);
     }
 
     future.then((response) => _onChunkDone(chunk, response),
         onError: (error, stackTrace) => _onChunkError(chunk, error, stackTrace));
+
     return chunkSize;
   }
 
@@ -334,6 +341,36 @@ class _FsFileUpload {
 
   void start() {
     _sendNext(0);
+  }
+
+  int getMaxChunkSize(
+      {required int offset, required int dataLen, required String filename, required int maxMcuMgrBuffLen}) {
+    // The size of the header is based on the scheme. CoAP scheme is larger because there are
+    // 4 additional bytes of CBOR.
+    int headerSize = 8;
+
+    // Size of the indefinite length map tokens (bf, ff)
+    int mapSize = 2;
+
+    // Size of the field name "data" utf8 string
+    int dataStringSize = CborString("data").utf8Bytes.length;
+
+    // Size of the string "off" plus the length of the offset integer
+    int offsetSize = cbor.encode(CborMap({CborString("off"): CborSmallInt(offset)})).length;
+
+    // Size of the string "len" plus the length of the data size integer
+    // "len" is sent only in the initial packet.
+    int lengthSize = (offset == 0) ? cbor.encode(CborMap({CborString("len"): CborSmallInt(dataLen)})).length : 1;
+
+    // Implementation specific size
+    int implSpecificSize = cbor.encode(CborMap({CborString("name"): CborString(filename)})).length;
+
+    int combinedSize = headerSize + mapSize + offsetSize + lengthSize + implSpecificSize + dataStringSize;
+
+    // Now we calculate the max amount of data that we can fit given the MTU.
+    int maxDataLength = maxMcuMgrBuffLen - combinedSize;
+
+    return maxDataLength;
   }
 }
 

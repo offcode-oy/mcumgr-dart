@@ -6,21 +6,7 @@ import 'package:mcumgr/util.dart';
 const _osGroup = 0;
 const _osCmdEcho = 0;
 const _osCmdReset = 5;
-
-/*     
-const struct cbor_attr_t attrs[2] = {
-        [0] = {
-            .attribute = "d",
-            .type = CborAttrTextStringType,
-            .addr.string = echo_buf,
-            .nodefault = 1,
-            .len = sizeof echo_buf,
-        },
-        [1] = {
-            .attribute = NULL
-        }
-    };
-  */
+const _osCmdConfig = 6;
 
 extension ClientOsExtension on Client {
   /// Sends an echo message to the device.
@@ -58,5 +44,41 @@ extension ClientOsExtension on Client {
       ),
       timeout,
     ).unwrap();
+  }
+
+  /// Returns the buffer configuration of the device.
+  Future<McuMgrBufferParams> params(Duration timeout) {
+    return execute(
+      Message(
+        op: Operation.read,
+        group: _osGroup,
+        id: _osCmdConfig,
+        flags: 0,
+        data: CborMap({}),
+      ),
+      timeout,
+    ).unwrap().then((msg) {
+      McuMgrBufferParams ret;
+      ret = McuMgrBufferParams(
+        bufSize: (msg.data[CborString("buf_size")] as CborInt).toInt(),
+        bufCount: (msg.data[CborString("buf_count")] as CborInt).toInt(),
+      );
+      return ret;
+    });
+  }
+}
+
+class McuMgrBufferParams {
+  final int bufSize;
+  final int bufCount;
+
+  const McuMgrBufferParams({
+    required this.bufSize,
+    required this.bufCount,
+  });
+
+  @override
+  String toString() {
+    return "McuMgrBufferParams(bufSize: $bufSize, bufCount: $bufCount)";
   }
 }

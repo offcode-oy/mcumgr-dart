@@ -245,8 +245,8 @@ class _DeviceScreenState extends State<DeviceScreen> {
     }
   }
 
-  void _upload() {
-    String examplePath = "/lfs/example.txt";
+  Future<void> _upload() async {
+    String filePath = "/lfs/example.txt";
     List<int> bytes = utf8.encode("Testing string");
     if (client == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -254,14 +254,24 @@ class _DeviceScreenState extends State<DeviceScreen> {
       ));
       return;
     }
+    McuMgrBufferParams params;
+
+    params = await client!.params(const Duration(seconds: 5)).catchError((e) {
+      if (kDebugMode) print("Error getting params: $e, defaulting to mtu size of 20");
+      return const McuMgrBufferParams(bufCount: 1, bufSize: 20);
+    });
+
+    if (kDebugMode) print("Params: $params");
 
     try {
       if (kDebugMode) print("Calling uploadFile");
       client!.uploadData(
-        deviceFilePath: examplePath,
+        deviceFilePath: filePath,
         data: bytes,
+        chunkSize: params.bufSize,
+        windowSize: 1, // Use 1 for now, otherwise does not work
         onProgress: (progress) {
-          if (kDebugMode) print("Progress: $progress");
+          if (kDebugMode) print("Upload progress: ${(progress * 100).toStringAsFixed(0)}%");
         },
         timeout: const Duration(seconds: 5),
       );
