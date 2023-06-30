@@ -399,7 +399,7 @@ class McuImageHeader {
   factory McuImageHeader.decode(List<int> input) {
     final magic = _decodeInt(input, 0, 4);
     if (magic != _imageHeaderMagic) {
-      throw FormatException("incorrect magic");
+      throw FormatException("incorrect header magic");
     }
 
     return McuImageHeader(
@@ -426,7 +426,7 @@ class McuImageTLV {
   factory McuImageTLV.decode(List<int> input, int offset) {
     final magic = _decodeInt(input, offset, 2);
     if (magic != _imageTLVMagic) {
-      throw FormatException("incorrect magic");
+      throw FormatException("incorrect TLV magic");
     }
 
     final length = _decodeInt(input, offset + 2, 2);
@@ -503,17 +503,22 @@ class McuImage {
 
   // Decodes a zip file containing multiple images.
   static List<McuZipImages> decodeZip(List<int> input) {
-    final archive = ZipDecoder().decodeBytes(input);
+    final Archive archive = ZipDecoder().decodeBytes(input);
     var manifestFile = archive.files
         .firstWhere((f) => f.name == "manifest.json", orElse: () => throw FormatException("manifest file not found"));
+
     final manifest = Manifest.fromJson(jsonDecode(utf8.decode(manifestFile.content)));
+
     final binaries = <McuZipImages>[];
+
     for (final file in manifest.files!) {
       final binaryFile = archive.files
           .firstWhere((f) => f.name == file.file, orElse: () => throw FormatException("binary file not found"));
+
       binaries.add(McuZipImages(McuImageHeader.decode(binaryFile.content), McuImageTLV.decode(binaryFile.content, 0),
           binaryFile.content, manifest.name!));
     }
+
     return binaries;
   }
 
