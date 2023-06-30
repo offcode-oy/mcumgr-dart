@@ -515,8 +515,9 @@ class McuImage {
       final binaryFile = archive.files
           .firstWhere((f) => f.name == file.file, orElse: () => throw FormatException("binary file not found"));
 
-      binaries.add(McuZipImages(McuImageHeader.decode(binaryFile.content), McuImageTLV.decode(binaryFile.content, 0),
-          binaryFile.content, manifest.name!));
+      final header = McuImageHeader.decode(binaryFile.content);
+      final tlv = McuImageTLV.decode(binaryFile.content, header.headerSize + header.imageSize);
+      binaries.add(McuZipImages(header, tlv, binaryFile.content, manifest.name!));
     }
 
     return binaries;
