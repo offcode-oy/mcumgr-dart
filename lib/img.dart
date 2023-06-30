@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:archive/archive.dart';
 import 'package:cbor/cbor.dart';
 import 'package:mcumgr/client.dart';
 import 'package:mcumgr/msg.dart';
@@ -17,9 +19,7 @@ class ImageState {
   final int splitStatus;
 
   ImageState(CborMap input)
-      : images = (input[CborString("images")] as CborList)
-            .map((value) => ImageStateImage(value as CborMap))
-            .toList(),
+      : images = (input[CborString("images")] as CborList).map((value) => ImageStateImage(value as CborMap)).toList(),
         splitStatus = (input[CborString("splitStatus")] as CborInt).toInt();
 
   @override
@@ -58,8 +58,7 @@ class ImageStateImage {
 class ImageUploadResponse {
   final int nextOffset;
 
-  ImageUploadResponse(CborMap input)
-      : nextOffset = (input[CborString("off")] as CborInt).toInt();
+  ImageUploadResponse(CborMap input) : nextOffset = (input[CborString("off")] as CborInt).toInt();
 }
 
 class _ImageUploadChunk {
@@ -208,8 +207,7 @@ extension ClientImgExtension on Client {
   /// Marks the image with the specified hash as pending.
   ///
   /// If [confirm] is false, the device will boot the image only once.
-  Future<ImageState> setPendingImage(
-      List<int> hash, bool confirm, Duration timeout) {
+  Future<ImageState> setPendingImage(List<int> hash, bool confirm, Duration timeout) {
     return execute(
       Message(
         op: Operation.write,
@@ -502,8 +500,222 @@ class McuImage {
     return McuImage(header, tlv);
   }
 
+  /// The content might be also a zip file. which contains 2 binaries and a manifest file.
+  /// The manifest file contains the information about the binaries.
+  /// // Example of the manifest file:
+  /*
+    {
+      "format-version": 0,
+      "time": 1687863040,
+      "files": [
+          {
+              "type": "application",
+              "board": "stethoscope_cpuapp",
+              "soc": "nRF5340_CPUAPP_QKAA",
+              "load_address": 66048,
+              "image_index": "0",
+              "slot_index_primary": "1",
+              "slot_index_secondary": "2",
+              "version_MCUBOOT": "0.1.9+76",
+              "size": 559016,
+              "file": "app_update.bin",
+              "modtime": 1687863040
+          },
+          {
+              "type": "application",
+              "board": "stethoscope_cpunet",
+              "soc": "nRF5340_CPUNET_QKAA",
+              "image_index": "1",
+              "slot_index_primary": "3",
+              "slot_index_secondary": "4",
+              "load_address": 16812032,
+              "version": "1",
+              "size": 189760,
+              "file": "net_core_app_update.bin",
+              "modtime": 1687863023
+          }
+      ],
+      "name": "fw-stethoscope",
+      "firmware": {
+          "zephyr": {
+              "revision": "e0293e9301140f940925b3970307df4fc68b23fa-dirty"
+          },
+          "nrf": {
+              "revision": "0677b0991e4c3ea58efd14e9e33b6c29a1919113"
+          }
+      }
+  }
+  */
+  // Implement the decoder for the zip file and return the list of binaries as McuImage objects.
+  static List<McuImage> decodeZip(List<int> input) {
+    final archive = ZipDecoder().decodeBytes(input);
+    var manifestFile = archive.files
+        .firstWhere((f) => f.name == "manifest.json", orElse: () => throw FormatException("manifest file not found"));
+    final manifest = Manifest.fromJson(jsonDecode(utf8.decode(manifestFile.content)));
+    final binaries = <McuImage>[];
+    for (final file in manifest.files!) {
+      final binaryFile = archive.files
+          .firstWhere((f) => f.name == file.file, orElse: () => throw FormatException("binary file not found"));
+      binaries.add(McuImage.decode(binaryFile.content));
+    }
+    return binaries;
+  }
+
   @override
   String toString() {
     return 'McuImage{header: $header, tlv: $tlv, hash: $hash}';
+  }
+}
+
+class Manifest {
+  int? formatVersion;
+  int? time;
+  List<DfuFile>? files;
+  String? name;
+  Firmware? firmware;
+
+  Manifest({this.formatVersion, this.time, this.files, this.name, this.firmware});
+
+  Manifest.fromJson(Map<String, dynamic> json) {
+    formatVersion = json['format-version'];
+    time = json['time'];
+    if (json['files'] != null) {
+      files = <DfuFile>[];
+      json['files'].forEach((v) {
+        files?.add(DfuFile.fromJson(v));
+      });
+    }
+    name = json['name'];
+    firmware = json['firmware'] != null ? Firmware.fromJson(json['firmware']) : null;
+  }
+
+  Map<String, dynamic> toJson() {
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['format-version'] = formatVersion;
+    data['time'] = time;
+    if (files != null) {
+      data['files'] = files?.map((v) => v.toJson()).toList();
+    }
+    data['name'] = name;
+    if (firmware != null) {
+      data['firmware'] = firmware?.toJson();
+    }
+    return data;
+  }
+}
+
+class DfuFile {
+  String? type;
+  String? board;
+  String? soc;
+  int? loadAddress;
+  String? imageIndex;
+  String? slotIndexPrimary;
+  String? slotIndexSecondary;
+  String? versionMCUBOOT;
+  int? size;
+  String? file;
+  int? modtime;
+  String? version;
+
+  DfuFile(
+      {this.type,
+      this.board,
+      this.soc,
+      this.loadAddress,
+      this.imageIndex,
+      this.slotIndexPrimary,
+      this.slotIndexSecondary,
+      this.versionMCUBOOT,
+      this.size,
+      this.file,
+      this.modtime,
+      this.version});
+
+  DfuFile.fromJson(Map<String, dynamic> json) {
+    type = json['type'];
+    board = json['board'];
+    soc = json['soc'];
+    loadAddress = json['load_address'];
+    imageIndex = json['image_index'];
+    slotIndexPrimary = json['slot_index_primary'];
+    slotIndexSecondary = json['slot_index_secondary'];
+    versionMCUBOOT = json['version_MCUBOOT'];
+    size = json['size'];
+    file = json['file'];
+    modtime = json['modtime'];
+    version = json['version'];
+  }
+
+  Map<String, dynamic> toJson() {
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['type'] = type;
+    data['board'] = board;
+    data['soc'] = soc;
+    data['load_address'] = loadAddress;
+    data['image_index'] = imageIndex;
+    data['slot_index_primary'] = slotIndexPrimary;
+    data['slot_index_secondary'] = slotIndexSecondary;
+    data['version_MCUBOOT'] = versionMCUBOOT;
+    data['size'] = size;
+    data['file'] = file;
+    data['modtime'] = modtime;
+    data['version'] = version;
+    return data;
+  }
+}
+
+class Firmware {
+  Zephyr? zephyr;
+  Nrf? nrf;
+
+  Firmware({this.zephyr, this.nrf});
+
+  Firmware.fromJson(Map<String, dynamic> json) {
+    zephyr = json['zephyr'] != null ? Zephyr.fromJson(json['zephyr']) : null;
+    nrf = json['nrf'] != null ? Nrf.fromJson(json['nrf']) : null;
+  }
+
+  Map<String, dynamic> toJson() {
+    final Map<String, dynamic> data = <String, dynamic>{};
+    if (zephyr != null) {
+      data['zephyr'] = zephyr?.toJson();
+    }
+    if (nrf != null) {
+      data['nrf'] = nrf?.toJson();
+    }
+    return data;
+  }
+}
+
+class Zephyr {
+  String? revision;
+
+  Zephyr({this.revision});
+
+  Zephyr.fromJson(Map<String, dynamic> json) {
+    revision = json['revision'];
+  }
+
+  Map<String, dynamic> toJson() {
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['revision'] = revision;
+    return data;
+  }
+}
+
+class Nrf {
+  String? revision;
+
+  Nrf({this.revision});
+
+  Nrf.fromJson(Map<String, dynamic> json) {
+    revision = json['revision'];
+  }
+
+  Map<String, dynamic> toJson() {
+    final Map<String, dynamic> data = <String, dynamic>{};
+    data['revision'] = revision;
+    return data;
   }
 }
