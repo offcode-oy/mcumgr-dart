@@ -1,6 +1,6 @@
 name: mcumgr
 description: Dart client for the mcumgr embedded device management protocol.
-version: 0.0.3
+version: 1.0.0
 repository: https://github.com/jkdhn/mcumgr-dart
 
 environment:

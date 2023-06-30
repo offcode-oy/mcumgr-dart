@@ -13,3 +13,11 @@
 * Client only subscribes to the input stream once
 * Added close() to Client
 * Added windowSize to uploadImage to send multiple chunks at once (defaults to 3, set to 1 to disable)
+
+## 1.0.0
+
+* FS calls:
+    - upload
+    - download
+* OS call:
+    - params
