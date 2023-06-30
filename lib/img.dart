@@ -481,6 +481,7 @@ class McuImage {
   final McuImageHeader header;
   final McuImageTLV tlv;
   final List<int> hash;
+  final List<int> content;
 
   static List<int> _getHash(McuImageTLV tlv) {
     for (final entry in tlv.entries) {
@@ -491,62 +492,16 @@ class McuImage {
     throw FormatException("image doesn't contain hash");
   }
 
-  McuImage(this.header, this.tlv) : hash = _getHash(tlv);
+  McuImage(this.header, this.tlv, this.content) : hash = _getHash(tlv);
 
   /// Decodes an image file.
   factory McuImage.decode(List<int> input) {
     final header = McuImageHeader.decode(input);
     final tlv = McuImageTLV.decode(input, header.headerSize + header.imageSize);
-    return McuImage(header, tlv);
+    return McuImage(header, tlv, input);
   }
 
-  /// The content might be also a zip file. which contains 2 binaries and a manifest file.
-  /// The manifest file contains the information about the binaries.
-  /// // Example of the manifest file:
-  /*
-    {
-      "format-version": 0,
-      "time": 1687863040,
-      "files": [
-          {
-              "type": "application",
-              "board": "stethoscope_cpuapp",
-              "soc": "nRF5340_CPUAPP_QKAA",
-              "load_address": 66048,
-              "image_index": "0",
-              "slot_index_primary": "1",
-              "slot_index_secondary": "2",
-              "version_MCUBOOT": "0.1.9+76",
-              "size": 559016,
-              "file": "app_update.bin",
-              "modtime": 1687863040
-          },
-          {
-              "type": "application",
-              "board": "stethoscope_cpunet",
-              "soc": "nRF5340_CPUNET_QKAA",
-              "image_index": "1",
-              "slot_index_primary": "3",
-              "slot_index_secondary": "4",
-              "load_address": 16812032,
-              "version": "1",
-              "size": 189760,
-              "file": "net_core_app_update.bin",
-              "modtime": 1687863023
-          }
-      ],
-      "name": "fw-stethoscope",
-      "firmware": {
-          "zephyr": {
-              "revision": "e0293e9301140f940925b3970307df4fc68b23fa-dirty"
-          },
-          "nrf": {
-              "revision": "0677b0991e4c3ea58efd14e9e33b6c29a1919113"
-          }
-      }
-  }
-  */
-  // Implement the decoder for the zip file and return the list of binaries as McuImage objects.
+  // Decodes a zip file containing multiple images.
   static List<McuImage> decodeZip(List<int> input) {
     final archive = ZipDecoder().decodeBytes(input);
     var manifestFile = archive.files
