@@ -7,6 +7,8 @@ import 'package:mcumgr/client.dart';
 import 'package:mcumgr/msg.dart';
 import 'package:mcumgr/util.dart';
 
+import 'package:crypto/crypto.dart';
+
 const _imgGroup = 1;
 const _imgCmdState = 0;
 const _imgCmdUpload = 1;
@@ -482,6 +484,7 @@ class McuImage {
   final McuImageTLV tlv;
   final List<int> hash;
   final List<int> content;
+  final List<int> sha;
 
   static List<int> _getHash(McuImageTLV tlv) {
     for (final entry in tlv.entries) {
@@ -492,13 +495,13 @@ class McuImage {
     throw FormatException("image doesn't contain hash");
   }
 
-  McuImage(this.header, this.tlv, this.content) : hash = _getHash(tlv);
+  McuImage(this.header, this.tlv, this.content, this.sha) : hash = _getHash(tlv);
 
   /// Decodes an image file.
   factory McuImage.decode(List<int> input) {
     final header = McuImageHeader.decode(input);
     final tlv = McuImageTLV.decode(input, header.headerSize + header.imageSize);
-    return McuImage(header, tlv, input);
+    return McuImage(header, tlv, input, []);
   }
 
   // Decodes a zip file containing multiple images.
@@ -517,7 +520,16 @@ class McuImage {
 
       final header = McuImageHeader.decode(binaryFile.content);
       final tlv = McuImageTLV.decode(binaryFile.content, header.headerSize + header.imageSize);
-      binaries.add(McuZipImages(header, tlv, binaryFile.content, manifest.name!));
+      // This is the example from java:
+      // MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      // byte[] hash = digest.digest(data);
+      // create dart equivalent
+      final sha = sha256.convert(binaryFile.content).bytes;
+
+      //print the sha as hex
+      print(sha.map((e) => e.toRadixString(16).padLeft(2, '0')).join());
+
+      binaries.add(McuZipImages(header, tlv, binaryFile.content, manifest.name!, sha));
     }
 
     return binaries;
@@ -532,7 +544,8 @@ class McuImage {
 class McuZipImages extends McuImage {
   final String name;
 
-  McuZipImages(McuImageHeader header, McuImageTLV tlv, List<int> content, this.name) : super(header, tlv, content);
+  McuZipImages(McuImageHeader header, McuImageTLV tlv, List<int> content, this.name, List<int> sha)
+      : super(header, tlv, content, sha);
 
   @override
   String toString() {
