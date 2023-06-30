@@ -502,16 +502,17 @@ class McuImage {
   }
 
   // Decodes a zip file containing multiple images.
-  static List<McuImage> decodeZip(List<int> input) {
+  static List<McuZipImages> decodeZip(List<int> input) {
     final archive = ZipDecoder().decodeBytes(input);
     var manifestFile = archive.files
         .firstWhere((f) => f.name == "manifest.json", orElse: () => throw FormatException("manifest file not found"));
     final manifest = Manifest.fromJson(jsonDecode(utf8.decode(manifestFile.content)));
-    final binaries = <McuImage>[];
+    final binaries = <McuZipImages>[];
     for (final file in manifest.files!) {
       final binaryFile = archive.files
           .firstWhere((f) => f.name == file.file, orElse: () => throw FormatException("binary file not found"));
-      binaries.add(McuImage.decode(binaryFile.content));
+      binaries.add(McuZipImages(McuImageHeader.decode(binaryFile.content), McuImageTLV.decode(binaryFile.content, 0),
+          binaryFile.content, manifest.name!));
     }
     return binaries;
   }
@@ -519,6 +520,17 @@ class McuImage {
   @override
   String toString() {
     return 'McuImage{header: $header, tlv: $tlv, hash: $hash}';
+  }
+}
+
+class McuZipImages extends McuImage {
+  final String name;
+
+  McuZipImages(McuImageHeader header, McuImageTLV tlv, List<int> content, this.name) : super(header, tlv, content);
+
+  @override
+  String toString() {
+    return 'McuZipImages{name: $name}';
   }
 }
 
