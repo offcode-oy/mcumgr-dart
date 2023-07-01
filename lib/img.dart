@@ -520,15 +520,7 @@ class McuImage {
 
       final header = McuImageHeader.decode(binaryFile.content);
       final tlv = McuImageTLV.decode(binaryFile.content, header.headerSize + header.imageSize);
-      // This is the example from java:
-      // MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      // byte[] hash = digest.digest(data);
-      // create dart equivalent
       final sha = sha256.convert(binaryFile.content).bytes;
-
-      //print the sha as hex
-      print(sha.map((e) => e.toRadixString(16).padLeft(2, '0')).join());
-
       binaries.add(McuZipImages(header, tlv, binaryFile.content, manifest.name!, sha));
     }
 
