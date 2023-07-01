@@ -166,16 +166,25 @@ class _DeviceScreenState extends State<DeviceScreen> {
       ));
       return;
     }
+    McuMgrBufferParams params;
+
+    params = await client!.params(const Duration(seconds: 5)).catchError((e) {
+      if (kDebugMode) print("Error getting params: $e, defaulting to mtu size of 20");
+      return const McuMgrBufferParams(bufCount: 1, bufSize: 20);
+    });
     setState(() {
       installing = true;
       progress = 0;
     });
     try {
       await client!.uploadImage(
-        0,
-        content,
-        image.hash,
-        const Duration(seconds: 30),
+        image: 0,
+        data: content,
+        hash: image.hash,
+        timeout: const Duration(seconds: 30),
+        chunkSize: params.bufSize,
+        windowSize: 1, // Use 1 for now, otherwise does not work
+        sha: image.sha,
         onProgress: (count) {
           setState(() {
             progress = count.toDouble() / content.length;

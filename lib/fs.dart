@@ -113,7 +113,7 @@ extension ClientFsExtension on Client {
   ///
   /// [data] is the data to upload.
   ///
-  /// [chunkSize] is the size of each chunk to upload.(default: 128 bytes)
+  /// [chunkSize] is the size of each chunk to upload.
   ///
   /// [timeout] is the maximum time to wait for a response. (default: 5 seconds)
   ///

@@ -76,8 +76,9 @@ class _ImageUpload {
   final int image;
   final List<int> data;
   final List<int> hash;
+  final List<int> sha;
   final Duration chunkTimeout;
-  final int maxChunkSize;
+  final int maxBufferSize;
   final void Function(int)? onProgress;
   final int windowSize;
   final List<_ImageUploadChunk> pending = [];
@@ -88,16 +89,24 @@ class _ImageUpload {
     required this.image,
     required this.data,
     required this.hash,
+    required this.sha,
     required this.chunkTimeout,
-    required this.maxChunkSize,
+    required this.maxBufferSize,
     required this.onProgress,
     required this.windowSize,
   });
 
   int sendChunk(int offset) {
     int chunkSize = data.length - offset;
-    if (chunkSize > maxChunkSize) {
-      chunkSize = maxChunkSize;
+    int maxBufSize = getMaxChunkSize(
+      offset: offset,
+      dataLen: data.length,
+      image: image,
+      sha: sha,
+      maxMcuMgrBuffLen: maxBufferSize,
+    );
+    if (chunkSize > maxBufSize) {
+      chunkSize = maxBufSize;
     }
     if (chunkSize <= 0) {
       return 0;
@@ -188,6 +197,43 @@ class _ImageUpload {
 
   void start() {
     _sendNext(0);
+  }
+
+  int getMaxChunkSize(
+      {required int offset,
+      required int dataLen,
+      required int image,
+      required List<int> sha,
+      required int maxMcuMgrBuffLen}) {
+    // The size of the header is based on the scheme. CoAP scheme is larger because there are
+    // 4 additional bytes of CBOR.
+    int headerSize = 8;
+
+    // Size of the indefinite length map tokens (bf, ff)
+    int mapSize = 2;
+
+    // Size of the field name "data" utf8 string
+    int dataStringSize = CborString("data").utf8Bytes.length;
+
+    // Size of the string "off" plus the length of the offset integer
+    int offsetSize = cbor.encode(CborMap({CborString("off"): CborSmallInt(offset)})).length;
+
+    // Size of the string "len" plus the length of the data size integer
+    // "len" is sent only in the initial packet.
+    int lengthSize = (offset == 0) ? cbor.encode(CborMap({CborString("len"): CborSmallInt(dataLen)})).length : 0;
+
+    // Implementation specific size
+    int implSpecificSize = (offset == 0) ? cbor.encode(CborMap({CborString("image"): CborSmallInt(image)})).length : 0;
+
+    // Sha hash size
+    int shaSize = (offset == 0) ? sha.length : 0;
+
+    int combinedSize = headerSize + mapSize + offsetSize + lengthSize + implSpecificSize + dataStringSize + shaSize;
+
+    // Now we calculate the max amount of data that we can fit given the maxMcuMgrBuffLen.
+    int maxDataLength = maxMcuMgrBuffLen - combinedSize;
+
+    return maxDataLength;
   }
 }
 
@@ -290,30 +336,35 @@ extension ClientImgExtension on Client {
   ///
   /// [image] is the type of the image (usually 0).
   /// The [data] will be sent to the device in chunks.
-  /// Use [McuImage.decode] to obtain the [hash].
+  /// Use [McuImage.decode] or [McuImage.decodeZip] to obtain the [hash].
   ///
   /// If specified, [onProgress] will be called after each uploaded chunk.
   /// Its parameter is the number bytes uploaded so far.
   ///
-  /// [windowSize] is the maximum number of in-flight chunks.
-  /// Defaults to 3.
+  /// [chunkSize] is the maximum size of each chunk.
+  ///
+  /// [timeout] is the maximum time to wait for a response from the device (default: 5s)
+  ///
+  /// [windowSize] is the maximum number of in-flight chunks. (default: 3)
   /// Use 1 for no concurrency (send packet, wait for response, send next).
-  Future<void> uploadImage(
-    int image,
-    List<int> data,
-    List<int> hash,
-    Duration chunkTimeout, {
-    int chunkSize = 128,
+  Future<void> uploadImage({
+    required int image,
+    required List<int> data,
+    required List<int> hash,
+    required List<int> sha,
+    required int chunkSize,
+    int windowSize = 1,
     void Function(int)? onProgress,
-    int windowSize = 3,
+    Duration timeout = const Duration(seconds: 5),
   }) async {
     final upload = _ImageUpload(
       client: this,
       image: image,
       data: data,
       hash: hash,
-      chunkTimeout: chunkTimeout,
-      maxChunkSize: chunkSize,
+      sha: sha,
+      chunkTimeout: timeout,
+      maxBufferSize: chunkSize,
       onProgress: onProgress,
       windowSize: windowSize,
     );
