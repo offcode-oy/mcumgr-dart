@@ -212,24 +212,30 @@ class _ImageUpload {
     // Size of the indefinite length map tokens (bf, ff)
     int mapSize = 2;
 
-    // Size of the field name "data" utf8 string
-    int dataStringSize = CborString("data").utf8Bytes.length;
+    // The size of the object is based on the offset. If the offset is 0, then we need to include
+    // the image, data, len, off, and sha fields. Otherwise, we only need to include the data and
+    // off fields.
+    int objSize;
+    if (offset == 0) {
+      objSize = cbor
+          .encode(CborMap({
+            CborString("image"): CborSmallInt(image),
+            CborString("data"): CborBytes([]),
+            CborString("len"): CborSmallInt(dataLen),
+            CborString("off"): CborSmallInt(offset),
+            CborString("sha"): CborBytes(sha),
+          }))
+          .length;
+    } else {
+      objSize = cbor
+          .encode(CborMap({
+            CborString("data"): CborBytes([]),
+            CborString("off"): CborSmallInt(offset),
+          }))
+          .length;
+    }
 
-    // Size of the string "off" plus the length of the offset integer
-    int offsetSize = cbor.encode(CborMap({CborString("off"): CborSmallInt(offset)})).length;
-
-    // Size of the string "len" plus the length of the data size integer
-    // "len" is sent only in the initial packet.
-    int lengthSize = (offset == 0) ? cbor.encode(CborMap({CborString("len"): CborSmallInt(dataLen)})).length : 0;
-
-    // Implementation specific size
-    int implSpecificSize = (offset == 0) ? cbor.encode(CborMap({CborString("image"): CborSmallInt(image)})).length : 0;
-
-    // Sha hash size
-    int shaSize =
-        (offset == 0) ? cbor.encode(CborMap({CborString("sha"): CborSmallInt(sha.length)})).length + sha.length : 0;
-
-    int combinedSize = headerSize + mapSize + offsetSize + lengthSize + implSpecificSize + dataStringSize + shaSize;
+    int combinedSize = headerSize + mapSize + objSize;
 
     // Now we calculate the max amount of data that we can fit given the maxMcuMgrBuffLen.
     int maxDataLength = maxMcuMgrBuffLen - combinedSize;
