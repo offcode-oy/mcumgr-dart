@@ -226,7 +226,8 @@ class _ImageUpload {
     int implSpecificSize = (offset == 0) ? cbor.encode(CborMap({CborString("image"): CborSmallInt(image)})).length : 0;
 
     // Sha hash size
-    int shaSize = (offset == 0) ? cbor.encode(CborMap({CborString("sha"): CborSmallInt(sha.length)})).length : 0;
+    int shaSize =
+        (offset == 0) ? cbor.encode(CborMap({CborString("sha"): CborSmallInt(sha.length)})).length + sha.length : 0;
 
     int combinedSize = headerSize + mapSize + offsetSize + lengthSize + implSpecificSize + dataStringSize + shaSize;
 
