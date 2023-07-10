@@ -79,7 +79,7 @@ class _ImageUpload {
   final List<int> sha;
   final Duration chunkTimeout;
   final int maxBufferSize;
-  final void Function(int)? onProgress;
+  final void Function(double)? onProgress;
   final int windowSize;
   final List<_ImageUploadChunk> pending = [];
   final completer = Completer<void>();
@@ -160,7 +160,8 @@ class _ImageUpload {
       return;
     }
 
-    onProgress?.call(response.nextOffset);
+    onProgress?.call(response.nextOffset / data.length);
+    // onProgress?.call(response.nextOffset);
 
     while (pending.isNotEmpty && pending.first.offset != response.nextOffset) {
       // pending chunk has the wrong offset, abandon it
@@ -361,7 +362,7 @@ extension ClientImgExtension on Client {
     required List<int> sha,
     required int chunkSize,
     int windowSize = 1,
-    void Function(int)? onProgress,
+    void Function(double)? onProgress,
     Duration timeout = const Duration(seconds: 5),
   }) async {
     final upload = _ImageUpload(
