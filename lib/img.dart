@@ -579,7 +579,15 @@ class McuImage {
       final header = McuImageHeader.decode(binaryFile.content);
       final tlv = McuImageTLV.decode(binaryFile.content, header.headerSize + header.imageSize);
       final sha = sha256.convert(binaryFile.content).bytes;
-      binaries.add(McuZipImages(header, tlv, binaryFile.content, manifest.name!, sha));
+      final index = int.parse(file.imageIndex!);
+      binaries.add(McuZipImages(
+        header,
+        tlv,
+        binaryFile.content,
+        manifest.name!,
+        sha,
+        index,
+      ));
     }
 
     return binaries;
@@ -593,8 +601,9 @@ class McuImage {
 
 class McuZipImages extends McuImage {
   final String name;
+  final int index;
 
-  McuZipImages(McuImageHeader header, McuImageTLV tlv, List<int> content, this.name, List<int> sha)
+  McuZipImages(McuImageHeader header, McuImageTLV tlv, List<int> content, this.name, List<int> sha, this.index)
       : super(header, tlv, content, sha);
 
   @override
