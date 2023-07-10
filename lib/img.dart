@@ -113,23 +113,23 @@ class _ImageUpload {
     }
     List<int> chunkData = data.sublist(offset, offset + chunkSize);
 
-    final chunk = _ImageUploadChunk(offset, chunkSize);
+    final chunk = _ImageUploadChunk(offset, offset + chunkSize);
     pending.add(chunk);
 
     final Future<ImageUploadResponse> future;
     if (offset == 0) {
       future = client.startImageUpload(
-        image,
-        chunkData,
-        data.length,
-        hash,
-        chunkTimeout,
+        image: image,
+        data: chunkData,
+        length: data.length,
+        sha256: sha,
+        timeout: chunkTimeout,
       );
     } else {
       future = client.continueImageUpload(
-        offset,
-        chunkData,
-        chunkTimeout,
+        offset: offset,
+        data: chunkData,
+        timeout: chunkTimeout,
       );
     }
 
@@ -282,13 +282,13 @@ extension ClientImgExtension on Client {
   /// Sends the first chunk of a firmware upload.
   ///
   /// This is a low-level API. You are probably looking for [uploadImage].
-  Future<ImageUploadResponse> startImageUpload(
-    int image,
-    List<int> data,
-    int length,
-    List<int> sha256,
-    Duration timeout,
-  ) {
+  Future<ImageUploadResponse> startImageUpload({
+    required int image,
+    required List<int> data,
+    required int length,
+    required List<int> sha256,
+    required Duration timeout,
+  }) {
     return execute(
       Message(
         op: Operation.write,
@@ -312,11 +312,11 @@ extension ClientImgExtension on Client {
   /// The first chunk should be uploaded using [startImageUpload] instead.
   ///
   /// This is a low-level API. You are probably looking for [uploadImage].
-  Future<ImageUploadResponse> continueImageUpload(
-    int offset,
-    List<int> data,
-    Duration timeout,
-  ) {
+  Future<ImageUploadResponse> continueImageUpload({
+    required int offset,
+    required List<int> data,
+    required Duration timeout,
+  }) {
     return execute(
       Message(
         op: Operation.write,
