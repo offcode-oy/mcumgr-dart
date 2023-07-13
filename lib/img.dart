@@ -482,8 +482,11 @@ class McuImageHeader {
 /// TLV section of an image file.
 class McuImageTLV {
   final List<McuImageTLVEntry> entries;
+  final int magic;
+  final int start;
+  final int length;
 
-  McuImageTLV(this.entries);
+  McuImageTLV(this.entries, this.magic, this.start, this.length);
 
   factory McuImageTLV.decode(List<int> input, int offset) {
     final magic = _decodeInt(input, offset, 2);
@@ -502,7 +505,7 @@ class McuImageTLV {
       offset += entry.length + 4;
     }
 
-    return McuImageTLV(entries);
+    return McuImageTLV(entries, magic, offset, length);
   }
 
   @override
@@ -579,12 +582,18 @@ class McuImage {
           .firstWhere((f) => f.name == file.file, orElse: () => throw FormatException("binary file not found"));
 
       final header = McuImageHeader.decode(binaryFile.content);
-      McuImageTLV tlv = McuImageTLV.decode(binaryFile.content, header.headerSize + header.imageSize);
-      // Loop through the TLV entries
-      for (final entry in tlv.entries) {
-        // If the entry is the hash, replace it with the hash from the manifest
-        print("entry type: ${entry.type}");
+      int start = header.headerSize + header.imageSize;
+
+      List<McuImageTLV> tlvs = [];
+      while (start < binaryFile.content.length) {
+        final tlv = McuImageTLV.decode(binaryFile.content, start);
+        tlvs.add(tlv);
+        start += tlv.length;
       }
+
+      // check it has the correct magic and if not throw an exception
+      final tlv = tlvs.firstWhere((tlv) => tlv.magic == _imageTLVMagic,
+          orElse: () => throw FormatException("tlv magic not found"));
 
       final sha = sha256.convert(binaryFile.content).bytes;
       final index = int.parse(file.imageIndex!);
