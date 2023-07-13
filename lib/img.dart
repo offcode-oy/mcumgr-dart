@@ -400,6 +400,7 @@ extension ClientImgExtension on Client {
 
 const _imageHeaderMagic = 0x96f3b83d;
 const _imageTLVMagic = 0x6907;
+const _imageTLVProtectedMagic = 0x6908;
 
 int _decodeInt(List<int> input, int offset, int length) {
   var result = 0;
@@ -486,7 +487,7 @@ class McuImageTLV {
 
   factory McuImageTLV.decode(List<int> input, int offset) {
     final magic = _decodeInt(input, offset, 2);
-    if (magic != _imageTLVMagic) {
+    if (magic != _imageTLVMagic && magic != _imageTLVProtectedMagic) {
       throw FormatException("incorrect TLV magic");
     }
 
@@ -578,7 +579,13 @@ class McuImage {
           .firstWhere((f) => f.name == file.file, orElse: () => throw FormatException("binary file not found"));
 
       final header = McuImageHeader.decode(binaryFile.content);
-      final tlv = McuImageTLV.decode(binaryFile.content, header.headerSize + header.imageSize);
+      McuImageTLV tlv = McuImageTLV.decode(binaryFile.content, header.headerSize + header.imageSize);
+      // Loop through the TLV entries
+      for (final entry in tlv.entries) {
+        // If the entry is the hash, replace it with the hash from the manifest
+        print("entry type: ${entry.type}");
+      }
+
       final sha = sha256.convert(binaryFile.content).bytes;
       final index = int.parse(file.imageIndex!);
       binaries.add(McuZipImages(
