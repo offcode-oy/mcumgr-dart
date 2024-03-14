@@ -22,7 +22,7 @@
 -   OS call:
     -   params
 
-## 1.0.1
+## 1.1.0
 
 -   Implement the zip package format
 -   Fix upload related issues / bugs
@@ -30,3 +30,7 @@
     -   Add image index into the zip image class
     -   Fix cbor calculation
     -   Add ZIP image extension to the MCU image class
+
+## 1.2.0
+
+-   Implement Log download and metadata decoding related to the log files
