@@ -176,6 +176,7 @@ extension ClientFsExtension on Client {
       logDownload: true,
       deviceName: deviceName,
       logName: logName,
+      fwVersion: fwVersion,
     );
     download.start(deviceFilePath, savePath, timeout);
     return download.completer.future;
@@ -498,6 +499,8 @@ class _FsFileDownload {
           // Remove the metadata from the response.data bytes
           response.data.bytes.removeRange(0, metadataLength + 1);
         } catch (e) {
+          print("Error parsing metadata: $e");
+          print("Continuing with the data from the app");
           // if the metadata is not accessible or other error occurs, just continue downloading
           // with the data from the app
 
@@ -505,7 +508,11 @@ class _FsFileDownload {
           String timeNow = DateTime.now().toString().split(".")[0].replaceAll(" ", "-").replaceAll(":", "");
 
           final newPath = "${this.savePath}/${this.deviceName}_${timeNow}_${this.fwVersion}_${this.logName}";
+          print("New path: $newPath");
           this.setNewPath?.call(newPath);
+
+          // Create new file with different filename
+          fDownObj.file = File(newPath);
         }
       }
     }
