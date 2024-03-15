@@ -163,6 +163,7 @@ extension ClientFsExtension on Client {
       void Function(double)? onProgress,
       required String deviceName,
       required String logName,
+      required String fwVersion,
       required Function(String) setNewPath,
       Duration timeout = const Duration(seconds: 5)}) async {
     final download = _FsFileDownload(
@@ -394,11 +395,17 @@ class _FsUploadChunk {
 ///
 /// [completer] is a completer that will be completed when the download is done.
 ///
+/// FOR LOG DOWNLOADS ----->
+///
 /// [logDownload] is a flag that indicates if the download is a log download.
+///
+/// [setNewPath] is a function that sets the new path of the file.
 ///
 /// [deviceName] is the name of the device.
 ///
 /// [logName] is the index of the log.
+///
+/// [fwVersion] is the firmware version of the device.
 class _FsFileDownload {
   final Client client;
   final void Function(double)? onProgress;
@@ -408,8 +415,9 @@ class _FsFileDownload {
   String savePath;
   bool logDownload;
   Function(String)? setNewPath;
-  String? deviceName; // Pass the device name to the download function
-  String? logName; // Pass the log index to the download function
+  String? deviceName;
+  String? logName;
+  String? fwVersion;
 
   _FsFileDownload({
     required this.client,
@@ -417,10 +425,11 @@ class _FsFileDownload {
     required this.deviceFilePath,
     required this.savePath,
     required this.timeout,
-    this.setNewPath,
     this.logDownload = false,
+    this.setNewPath,
     this.deviceName,
     this.logName,
+    this.fwVersion,
   });
 
   /// Downloads a file from the device.
@@ -464,42 +473,40 @@ class _FsFileDownload {
 
       // ONLY FOR LOG DOWNLOADS
       if (this.logDownload) {
-        // First byte of the first chunk is the lenght of the metadata in the file
-        final metadataLength = response.data.bytes[0];
-        print("Metadata length: $metadataLength");
-        // Extract metadata from the file. This will be cbor coded map with keys: ts, hw, fw
-        final metadata = response.data.bytes.sublist(1, metadataLength + 1);
-        print("Metadata: $metadata");
+        try {
+          // First byte of the first chunk is the lenght of the metadata in the file
+          final metadataLength = response.data.bytes[0];
+          // Extract metadata from the file. This will be cbor coded map with keys: ts, hw, fw
+          final metadata = response.data.bytes.sublist(1, metadataLength + 1);
+          // collect the metadata (timestamp, hw revision, firmware version)
+          final metadataMap = cbor.decode(metadata) as CborMap;
+          String firmwareVersion = (metadataMap[CborString("fw")] as CborString).toString();
+          String hwVersion = (metadataMap[CborString("hw")] as CborString).toString();
+          int timestamp = (metadataMap[CborString("ts")] as CborInt).toInt();
 
-        // collect the metadata (timestamp, hw revision, firmware version)
-        final metadataMap = cbor.decode(metadata) as CborMap;
-        String firmwareVersion = (metadataMap[CborString("fw")] as CborString).toString();
-        String hwVersion = (metadataMap[CborString("hw")] as CborString).toString();
-        int timestamp = (metadataMap[CborString("ts")] as CborInt).toInt();
+          // Make the timestamp human readable as a date string
+          DateTime date = DateTime.fromMicrosecondsSinceEpoch(timestamp);
+          String formatedTime = date.toString().split(".")[0].replaceAll(" ", "-").replaceAll(":", "");
 
-        // Make the timestamp human readable as a date string
-        DateTime date = DateTime.fromMicrosecondsSinceEpoch(timestamp);
-        print("Timestamp: $timestamp");
-        print("Date: $date");
+          final newPath =
+              "${this.savePath}/${this.deviceName}_${formatedTime}_${firmwareVersion}_${hwVersion}_${this.logName}";
+          this.setNewPath?.call(newPath);
 
-        String timeNow = date.toString().split(".")[0].replaceAll(" ", "-").replaceAll(":", "");
+          // Create new file with different filename
+          fDownObj.file = File(newPath);
 
-        print("Firmware version: ${firmwareVersion}");
-        print("HW version: ${hwVersion}");
-        print("Timestamp: ${timestamp}");
-        print("Date: ${timeNow}");
+          // Remove the metadata from the response.data bytes
+          response.data.bytes.removeRange(0, metadataLength + 1);
+        } catch (e) {
+          // if the metadata is not accessible or other error occurs, just continue downloading
+          // with the data from the app
 
-        final newPath =
-            "${this.savePath}/${this.deviceName}_${timeNow}_${firmwareVersion}_${hwVersion}_${this.logName}";
-        this.setNewPath?.call(newPath);
+          // Get the current date and time for the file name
+          String timeNow = DateTime.now().toString().split(".")[0].replaceAll(" ", "-").replaceAll(":", "");
 
-        print("New save path: ${newPath}");
-
-        // Create new file with different filename
-        fDownObj.file = File(newPath);
-
-        // Remove the metadata from the response.data bytes
-        response.data.bytes.removeRange(0, metadataLength + 1);
+          final newPath = "${this.savePath}/${this.deviceName}_${timeNow}_${this.fwVersion}_${this.logName}";
+          this.setNewPath?.call(newPath);
+        }
       }
     }
 
