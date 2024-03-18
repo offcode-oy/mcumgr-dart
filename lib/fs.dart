@@ -505,7 +505,7 @@ class _FsFileDownload {
           // with the data from the app
 
           // Get the current date and time for the file name
-          String timeNow = DateTime.now().toString().split(".")[0].replaceAll(" ", "-").replaceAll(":", "");
+          String timeNow = DateTime.now().toUtc().toString().split(".")[0].replaceAll(" ", "-").replaceAll(":", "");
 
           final newPath = "${this.savePath}/${this.deviceName}_${timeNow}_${this.fwVersion}_${this.logName}";
           print("New path: $newPath");
