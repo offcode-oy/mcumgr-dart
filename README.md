@@ -1,10 +1,14 @@
 A client library for the [mcumgr](https://github.com/apache/mynewt-mcumgr) device management protocol.
 
+This is offcode's fork of the original [mcumgr.dart](https://github.com/jkdhn/mcumgr-dart) package. The original package was not maintained and had some issues. This fork aims to fix those issues and add new features.
+
 ## Features
 
 * Upload firmware updates (DFU)
+* Read and write files
+* Run commands
 
-## Usage
+## Usage (!NOT UPDATED)
 
 This package just implements the protocol, you need to bring your own transport layer.
 
