@@ -142,46 +142,6 @@ extension ClientFsExtension on Client {
     return download.completer.future;
   }
 
-  /// Download a log file from the device.
-  ///
-  /// [deviceFilePath] is the path to the file to download (from the target device).
-  ///
-  /// [savePath] is the name of the file to download to (save).
-  ///
-  /// [deviceName] is the name of the device.
-  ///
-  /// [logName] is the index of the log.
-  ///
-  /// [setNewPath] is a function that sets the new path of the file.
-  ///
-  /// If specified, [onProgress] will be called after each downloaded chunk.
-  ///
-  /// [timeout] is the maximum time to wait for a response. (default: 5 seconds)
-  Future<void> downloadLogFile(
-      {required String deviceFilePath,
-      required String savePath,
-      void Function(double)? onProgress,
-      required String deviceName,
-      required String logName,
-      required String fwVersion,
-      required Function(String) setNewPath,
-      Duration timeout = const Duration(seconds: 5)}) async {
-    final download = _FsFileDownload(
-      client: this,
-      onProgress: onProgress,
-      deviceFilePath: deviceFilePath,
-      setNewPath: setNewPath,
-      savePath: savePath,
-      timeout: timeout,
-      logDownload: true,
-      deviceName: deviceName,
-      logName: logName,
-      fwVersion: fwVersion,
-    );
-    download.start(deviceFilePath, savePath, timeout);
-    return download.completer.future;
-  }
-
   /// Download a chunk from the device.
   ///
   /// [path] is the path to the file to download.
@@ -414,11 +374,6 @@ class _FsFileDownload {
   final Duration timeout;
   final completer = Completer<void>();
   String savePath;
-  bool logDownload;
-  Function(String)? setNewPath;
-  String? deviceName;
-  String? logName;
-  String? fwVersion;
 
   _FsFileDownload({
     required this.client,
@@ -426,11 +381,6 @@ class _FsFileDownload {
     required this.deviceFilePath,
     required this.savePath,
     required this.timeout,
-    this.logDownload = false,
-    this.setNewPath,
-    this.deviceName,
-    this.logName,
-    this.fwVersion,
   });
 
   /// Downloads a file from the device.
@@ -441,8 +391,9 @@ class _FsFileDownload {
   ///
   /// [timeout] is the timeout for the request.
   void start(String deviceFilePath, String savePath, Duration timeout) async {
+    print("Downloading file from $deviceFilePath to $savePath");
     File file = File(savePath);
-    this.setNewPath?.call(savePath);
+    // this.setNewPath?.call(savePath);
     final Future<FsDownloadResponse> future;
     int bytesReseivedTotal = 0;
     int offset = 0;
@@ -471,50 +422,6 @@ class _FsFileDownload {
       // File length is only set on the first response
       fDownObj.length = response.fileLength!;
       fDownObj.bytesReseivedTotal = 0;
-
-      // ONLY FOR LOG DOWNLOADS
-      if (this.logDownload) {
-        try {
-          // First byte of the first chunk is the lenght of the metadata in the file
-          final metadataLength = response.data.bytes[0];
-          // Extract metadata from the file. This will be cbor coded map with keys: ts, hw, fw
-          final metadata = response.data.bytes.sublist(1, metadataLength + 1);
-          // collect the metadata (timestamp, hw revision, firmware version)
-          final metadataMap = cbor.decode(metadata) as CborMap;
-          String firmwareVersion = (metadataMap[CborString("fw")] as CborString).toString();
-          String hwVersion = (metadataMap[CborString("hw")] as CborString).toString();
-          int timestamp = (metadataMap[CborString("ts")] as CborInt).toInt();
-
-          // Make the timestamp human readable as a date string
-          DateTime date = DateTime.fromMicrosecondsSinceEpoch(timestamp);
-          String formatedTime = date.toString().split(".")[0].replaceAll(" ", "-").replaceAll(":", "");
-
-          final newPath =
-              "${this.savePath}/${this.deviceName}_${formatedTime}_${firmwareVersion}_${hwVersion}_${this.logName}";
-          this.setNewPath?.call(newPath);
-
-          // Create new file with different filename
-          fDownObj.file = File(newPath);
-
-          // Remove the metadata from the response.data bytes
-          response.data.bytes.removeRange(0, metadataLength + 1);
-        } catch (e) {
-          print("Error parsing metadata: $e");
-          print("Continuing with the data from the app");
-          // if the metadata is not accessible or other error occurs, just continue downloading
-          // with the data from the app
-
-          // Get the current date and time for the file name
-          String timeNow = DateTime.now().toUtc().toString().split(".")[0].replaceAll(" ", "-").replaceAll(":", "");
-
-          final newPath = "${this.savePath}/${this.deviceName}_${timeNow}_${this.fwVersion}_${this.logName}";
-          print("New path: $newPath");
-          this.setNewPath?.call(newPath);
-
-          // Create new file with different filename
-          fDownObj.file = File(newPath);
-        }
-      }
     }
 
     int newOffset = fDownObj.offset + response.bytesReseived;
