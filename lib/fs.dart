@@ -431,7 +431,7 @@ class _FsFileDownload {
     onProgress?.call(newOffset / fDownObj.length);
 
     // Write data to file
-    fDownObj.file!.writeAsBytes((response.data).bytes, mode: FileMode.append);
+    fDownObj.file!.writeAsBytesSync((response.data).bytes, mode: FileMode.append, flush: true);
 
     // Check that if the file is complete (reseived bytes equal to file length)
     if (fDownObj.bytesReseivedTotal == fDownObj.length) {
